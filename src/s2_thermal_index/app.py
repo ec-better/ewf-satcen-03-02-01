@@ -89,7 +89,7 @@ def main(input_reference, data_path):
         
         ds.FlushCache()
 
-        tif =  '{0}_UInt16.tif'.format(row['identifier'])
+        tif = '{}_NIR_SWIR_COMPOSITE_UInt16.tif'.format(row['identifier'])
         
         logging.info('Convert {} to UInt16'.format(row['identifier']))
 
@@ -107,13 +107,13 @@ def main(input_reference, data_path):
                        scaleParams=[[0, 10000, 0, 255]])
         
         
-        tif_e =  '{}_NIR_SWIR_COMPOSITE.tif'.format(row['identifier'])
+#        tif_e =  '{}_NIR_SWIR_COMPOSITE.tif'.format(row['identifier'])
 
-        contrast_enhancement(tif, tif_e)
+#        contrast_enhancement(tif, tif_e)
 
-        composites.append(tif_e)
-        os.remove(tif)
-        os.remove(vrt)
+#        composites.append(tif_e)
+#        os.remove(tif)
+#        os.remove(vrt)
         
         vrt = '{0}.vrt'.format(row['identifier'])
         ds = gdal.BuildVRT(vrt,
@@ -121,10 +121,10 @@ def main(input_reference, data_path):
                            separate=True)
         ds.FlushCache()
 
-        tif =  '{0}_SCL.tif'.format(row['identifier'])
+        scl_tif =  '{0}_SCL.tif'.format(row['identifier'])
 
 
-        gdal.Translate(tif,
+        gdal.Translate(scl_tif,
                        vrt,
                        xRes=10, 
                        yRes=10,
@@ -133,8 +133,6 @@ def main(input_reference, data_path):
 
                
     bands = ['B12']
-
-    composites = []
 
     #resampleAlg=gdal.GRA_Mode,
     for index, row in sentinel2_search.iterrows():
@@ -158,25 +156,25 @@ def main(input_reference, data_path):
 
         gdal.Translate(tif,
                        vrt,
-                       outputType=gdal.GDT_Float32)
+                       outputType=gdal.GDT_UInt16)
 
 
-        #hot_spot_name = '{}_HOT_SPOT.tif'.format(row['identifier'])
+        hot_spot_name = '{}_HOT_SPOT.tif'.format(row['identifier'])
 
         #hot_spot_composite_name = '{}_HOT_SPOT_COMPOSITE.tif'.format(row['identifier'])
         
-        #logging.info('Hot spot detection for {}'.format(row['identifier']))
-        #hot_spot(tif,
-        #         hot_spot_name, 
-        #         hot_spot_composite_name)
+        logging.info('Hot spot detection for {}'.format(row['identifier']))
+        hot_spot(tif,
+                 scl_tif,
+                 hot_spot_name)
     
-        #logging.info('Vectorize detected hot spots in {}'.format(row['identifier']))
+        logging.info('Vectorize detected hot spots in {}'.format(row['identifier']))
         
-        #results_gdf = polygonize(hot_spot_name, row['startdate'], row['identifier'])
+        results_gdf = polygonize(hot_spot_name, row['startdate'], row['identifier'])
         
-        #results_gdf.to_file('{}_HOT_SPOT.geojson'.format(row['identifier']),
-        #                    driver='GeoJSON')
-        
+        results_gdf.to_file('{}_HOT_SPOT_VECTOR.geojson'.format(row['identifier']),
+                            driver='GeoJSON')
+        os.remove(tif)
         os.remove(vrt)
         
 if __name__ == '__main__':
