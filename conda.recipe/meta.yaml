@@ -1,0 +1,51 @@
+{% set data = load_setup_py_data() %}
+
+package:
+  name: s2_thermal_index
+
+  version: {{ '.'.join(data.get('version').split('.')[:-1]) }}
+
+
+source:
+  path: ..
+
+build:
+  number: {{ data.get('version').split('.')[-1] }}
+  script: "$PYTHON setup.py install"
+  
+requirements:
+  host:
+    - python=3.5
+    - "setuptools>40.0.0"
+    
+  run:
+    - python=3.5
+    - numpy=1.13.3
+    - lxml 
+    - "setuptools>40.0.0"
+    - shapely=1.5.16
+    - gdal=2.2.2 
+    - geos=3.5.0
+    - netcdf4
+    - libnetcdf=4.4.1 
+    - hdf4=4.2.13
+    - hdf5
+    - cioppy 
+    - geopandas=0.6.1
+    - pandas=0.23.4
+    - lxml
+    - pyyaml
+    - python-dateutil=2.8.1
+    - proj4=4.9.3
+    - pyproj=1.9.5.1
+    - otb
+    - libgcc=7.2.0
+    - urllib3
+
+about:
+  home:
+  license:
+  summary: {{ data.get('description') }}
+  description: {{ data.get('long_description') }}
+ 
+ 
