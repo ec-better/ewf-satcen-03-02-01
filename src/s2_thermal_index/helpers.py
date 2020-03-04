@@ -12,6 +12,7 @@ from osgeo.gdalconst import GA_ReadOnly
 from ogr import osr
 import geopandas as gp
 import json
+import shutil
 
 def polygonize(url, date, originator):
     
@@ -60,6 +61,25 @@ def analyse(row, data_path):
     
     return pd.Series(series)
 
+
+def get_mask_prob(row):
+    
+    ns = {'xfdu': 'urn:ccsds:schema:xfdu:1',
+          'safe': 'http://www.esa.int/safe/sentinel/1.1',
+          'gml': 'http://www.opengis.net/gml'}
+    
+    path_manifest = os.path.join(row['local_path'],
+                                 row['identifier'] + '.SAFE', 
+                                'manifest.safe')
+    
+    root = etree.parse(path_manifest)
+    
+
+    sub_path = os.path.join(row['local_path'],
+                 row['identifier'] + '.SAFE',
+                 root.xpath('//dataObjectSection/dataObject/byteStream/fileLocation[contains(@href,("MSK_CLDPRB_20m.jp2"))]')[0].attrib['href'][2:])
+    
+    return sub_path
 
 def get_band_path(row, band):
     
@@ -125,80 +145,36 @@ def radius_index(i, j, d, width, height):
 
     return i_ind1, i_ind2, j_ind1, j_ind2
     
-def hot_spot(s2_product, output_name, output_composite_name):
+def hot_spot(s2_product, scl_product, output_name):
     
     gain = 10000
     
-    ds = gdal.Open(s2_product)
+    ds_scl = gdal.Open(scl_product)
+    scl = ds_scl.GetRasterBand(1).ReadAsArray() 
     
-    b8A = ds.GetRasterBand(1).ReadAsArray()
-    b12 = ds.GetRasterBand(2).ReadAsArray()
-     
+    ds_scl = None
+    
+    ds = gdal.Open(s2_product)
+    b12 = ds.GetRasterBand(1).ReadAsArray()
+    
     width = ds.RasterXSize
     height = ds.RasterYSize
     
     input_geotransform = ds.GetGeoTransform()
     input_georef = ds.GetProjectionRef()
     
+    ds = None
+    
     hot_spot = np.zeros((height, width), dtype=np.uint8)
-    
-    r = np.zeros((height, width))
-    
-    # Calculate ratio r and difference delta
-    r[np.where(b8A > 0)] = b12[np.where(b8A > 0)] / b8A[np.where(b8A > 0)]
-    delta = b12 - b8A
- 
-    b8A = None
+   
     # Step 1 : mask obvious water pixels (value 3)
     # B12 < 0.04 are flagged as water and thus are excluded
-    hot_spot[np.where(b12 < (0.04 * gain))] = 3
-
+    hot_spot[np.where(b12 > (0.8 * gain))] = 1
+    hot_spot[np.where(b12 <= (0.8 * gain))] = 0
+    
     # Step 2 : identify obvious fire pixels (value 1)
-    hot_spot[np.where((hot_spot == 0) & (r > 2) & (delta > (0.15 * gain)))] = 1
+    hot_spot[np.where((scl == 0) | (scl == 1))] = 2
 
-    # Step 3 : identify candidate fire pixels (value 2)
-    hot_spot[np.where((hot_spot == 0) & (r > 1.1) & (delta > (0.1 * gain)))] = 2
-
-    # Step 4 : background characterization around candidate fire pixelscase of large fire.
-    hot_spot[np.where(hot_spot == 3)] = 0
-    
-    
-    for j in range(width):
-
-        for i in range(height):
-
-            # If the pixel is a candidate fire pixel (value = 2), we have to decide
-            if hot_spot[i, j] == 2:
-
-                # Find an appropriate size for a square window centered on the candidate fire pixel
-                # default size is 91 x 91 pixels (1820m * 1820m)
-                # We increase the size while the number of no obvious or candidate fire pixels is less than the half of total pixels in the window.
-                d = 91
-                i_ind1, i_ind2, j_ind1, j_ind2 = radius_index(i, j, d, width, height)
-                nbr_pixels = math.floor(math.pow(d, 2) / 2)
-
-                while np.size(np.where(hot_spot[i_ind1:i_ind2,j_ind1:j_ind2] == 0))/2 < nbr_pixels:
-                    d += 8
-                    i_ind1,i_ind2,j_ind1,j_ind2 = radius_index(i,j,d,width,height)
-                    nbr_pixels = math.floor(math.pow(d,2) / 2)
-
-                # background_characterization in the defined square window centered on the candidate fire pixel
-                # Statistics are computed for pixels within the background : mean and stdv of r; 
-                # mean and stdv of B12
-                r_m =  np.mean(r[np.where(hot_spot[i_ind1:i_ind2,j_ind1:j_ind2] == 0)])
-                r_std = np.std(r[np.where(hot_spot[i_ind1:i_ind2,j_ind1:j_ind2] == 0)])
-
-                B12_m = np.mean(b12[np.where(hot_spot[i_ind1:i_ind2,j_ind1:j_ind2] == 0)])
-                B12_std = np.std(b12[np.where(hot_spot[i_ind1:i_ind2,j_ind1:j_ind2] == 0)])
-
-                # Step 5 : Contextual tests
-                # Here we decide for all candidate fire pixels (value 2) if they are fire (value 1) or not (value 0)
-                # Two conditions have to be sattisfied to flag a candidate pixel as fire pixel
-                if ( r[i,j] > r_m + max((3 * r_std),(0.5 * gain)) ) and ( b12[i,j] > b12_m + max((3 * b12_std),(0.05 * gain)) ):
-                    hot_spot[i,j] = 1
-                else:
-                    hot_spot[i,j] = 0
-    
     driver = gdal.GetDriverByName('GTiff')
     
     output = driver.Create(output_name, 
@@ -212,42 +188,82 @@ def hot_spot(s2_product, output_name, output_composite_name):
     output.GetRasterBand(1).WriteArray(hot_spot)
 
     output.FlushCache()
-    
-    red_band = ds.GetRasterBand(3).ReadAsArray().astype(float)
-    green_band = ds.GetRasterBand(4).ReadAsArray().astype(float)
-    blue_band = ds.GetRasterBand(5).ReadAsArray().astype(float)
-    
-    # rescale
-    red_band = (red_band / 4095.0 * 255).astype(int)
-    green_band = (green_band / 4095.0 * 255).astype(int)
-    blue_band = (blue_band / 4095.0 * 255).astype(int)
-    
-    if np.max(hot_spot) > 0:
-        red_band[np.where(hot_spot == 1)] = 255
-        green_band[np.where(hot_spot == 1)] = 0
-        blue_band[np.where(hot_spot == 1)] = 0
-    
-    driver = gdal.GetDriverByName('GTiff')
-    
-    output = driver.Create(output_composite_name, 
-                           width, 
-                           height, 
-                           3, 
-                           gdal.GDT_Byte)
-        
-    output.SetGeoTransform(input_geotransform)
-    output.SetProjection(input_georef)
-    output.GetRasterBand(1).WriteArray(red_band)
-    output.GetRasterBand(2).WriteArray(green_band)
-    output.GetRasterBand(3).WriteArray(blue_band)
-    
-    output.FlushCache()
-    
+   
     return True
 
-
+def metadata(result, title, row):
+    
+    date_format = '%Y-%m-%dT%H:%m:%S'
+    
+    with open(result.split('.')[0] + '.properties', 'w') as file:
+        file.write('title={}\n'.format(title))
+        file.write('date={}Z/{}Z\n'.format(row.startdate.strftime(date_format),
+                                           row.enddate.strftime(date_format)))   
+        file.write('geometry={}'.format(row.wkt))
 
     
+def cog(input_tif):
     
+    temp_tif = 'temp.tif'
+    
+    shutil.move(input_tif, temp_tif)
+    
+    translate_options = gdal.TranslateOptions(gdal.ParseCommandLine('-co TILED=YES ' \
+                                                                    '-co COPY_SRC_OVERVIEWS=YES ' \
+                                                                    ' -co COMPRESS=LZW'))
 
+    ds = gdal.Open(temp_tif, gdal.OF_READONLY)
+
+    gdal.SetConfigOption('COMPRESS_OVERVIEW', 'DEFLATE')
+    ds.BuildOverviews('NEAREST', [2,4,8,16,32])
+    
+    ds = None
+
+    ds = gdal.Open(temp_tif)
+    gdal.Translate(input_tif,
+                   ds, 
+                   options=translate_options)
+    ds = None
+
+    os.remove('{}.ovr'.format(temp_tif))
+    os.remove(temp_tif)
+
+    
+def cloud_mask(msk_cloud, prob, output_name):
+    
+    gdal.Translate('mask.tif', 
+               msk_cloud,
+               xRes=10, 
+               yRes=10)
+
+    ds = gdal.Open('mask.tif')
+
+    mask = ds.GetRasterBand(1).ReadAsArray() 
+
+    width = ds.RasterXSize
+    height = ds.RasterYSize
+
+    input_geotransform = ds.GetGeoTransform()
+    input_georef = ds.GetProjectionRef()
+
+    mask_threshold = np.zeros((height, width), dtype=np.uint8)
+
+    mask_threshold[np.where(mask >= prob)] = 1
+
+    driver = gdal.GetDriverByName('GTiff')
+
+    output = driver.Create(output_name, 
+                           width, 
+                           height, 
+                           1, 
+                           gdal.GDT_Byte)
+
+    output.SetGeoTransform(input_geotransform)
+    output.SetProjection(input_georef)
+    output.GetRasterBand(1).WriteArray(mask_threshold)
+
+    output.FlushCache()
+    
+    os.remove('mask.tif')
+    
     
