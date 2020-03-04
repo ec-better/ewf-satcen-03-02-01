@@ -59,6 +59,8 @@ def main(input_reference, data_path):
     
     sentinel2_search = GeoDataFrame(temp_results)
 
+    sentinel2_search['startdate'] = pd.to_datetime(sentinel2_search['startdate'])
+    sentinel2_search['enddate'] = pd.to_datetime(sentinel2_search['enddate'])
     sentinel2_search['wkt'] = sentinel2_search['wkt'].apply(loads)    
             
     sentinel2_search = sentinel2_search.merge(sentinel2_search.apply(lambda row: analyse(row, 
@@ -73,6 +75,21 @@ def main(input_reference, data_path):
 
     for index, row in sentinel2_search.iterrows():
 
+        # cloud mask
+        logging.info('Cloud mask 20%')
+        mask_prb = get_mask_prob(row)
+        
+        output_name = '{}_CLOUD_MASK_20.tif'.format(row['identifier'])
+        
+        cloud_mask(mask_prb, 20, output_name)
+        
+        cog(output_name)
+        
+        metadata(output_name,
+                 'Cloud mask 20% {}'.format(row['identifier']),
+                 row)
+        
+        
         vrt_bands = []
 
         for j, band in enumerate(bands):
@@ -93,9 +110,15 @@ def main(input_reference, data_path):
         
         logging.info('Convert {} to UInt16'.format(row['identifier']))
 
+        metadata(tif,
+                 'RGB UInt16 Composite {}'.format(row['identifier']),
+                 row)
+        
         gdal.Translate(tif,
                        vrt,
                        outputType=gdal.GDT_UInt16)
+        
+        cog(tif)
         
         tif =  '{0}.tif'.format(row['identifier'])
         
@@ -107,14 +130,20 @@ def main(input_reference, data_path):
                        scaleParams=[[0, 10000, 0, 255]])
         
         
-#        tif_e =  '{}_NIR_SWIR_COMPOSITE.tif'.format(row['identifier'])
+        tif_e =  '{}_NIR_SWIR_COMPOSITE.tif'.format(row['identifier'])
 
-#        contrast_enhancement(tif, tif_e)
+        contrast_enhancement(tif, tif_e)
 
-#        composites.append(tif_e)
-#        os.remove(tif)
-#        os.remove(vrt)
+        composites.append(tif_e)
+        os.remove(tif)
+        os.remove(vrt)
+
+        cog(tif_e)
         
+        metadata(tif_e, 
+                 'RGB Composite {}'.format(row['identifier']),
+                 row)
+    
         vrt = '{0}.vrt'.format(row['identifier'])
         ds = gdal.BuildVRT(vrt,
                            [get_band_path(row, 'SCL')],
@@ -123,7 +152,10 @@ def main(input_reference, data_path):
 
         scl_tif =  '{0}_SCL.tif'.format(row['identifier'])
 
-
+        metadata(scl_tif,
+                 'Scene Classification {}'.format(row['identifier']),
+                 row)
+        
         gdal.Translate(scl_tif,
                        vrt,
                        xRes=10, 
@@ -131,6 +163,7 @@ def main(input_reference, data_path):
                        outputType=gdal.GDT_Byte, 
                        resampleAlg=gdal.GRA_Mode)
 
+        cog(scl_tif)
                
     bands = ['B12']
 
@@ -160,13 +193,16 @@ def main(input_reference, data_path):
 
 
         hot_spot_name = '{}_HOT_SPOT.tif'.format(row['identifier'])
-
-        #hot_spot_composite_name = '{}_HOT_SPOT_COMPOSITE.tif'.format(row['identifier'])
+        metadata(hot_spot_name, 
+                 'Hot spot {}'.format(row['identifier']),
+                 row)
         
         logging.info('Hot spot detection for {}'.format(row['identifier']))
         hot_spot(tif,
                  scl_tif,
                  hot_spot_name)
+    
+        cog(hot_spot_name)
     
         logging.info('Vectorize detected hot spots in {}'.format(row['identifier']))
         
@@ -174,6 +210,11 @@ def main(input_reference, data_path):
         
         results_gdf.to_file('{}_HOT_SPOT_VECTOR.geojson'.format(row['identifier']),
                             driver='GeoJSON')
+        
+        metadata('{}_HOT_SPOT_VECTOR.geojson'.format(row['identifier']),
+                 'Hot spot vector {}'.format(row['identifier']),
+                 row)
+        
         os.remove(tif)
         os.remove(vrt)
         

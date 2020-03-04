@@ -1,4 +1,2 @@
 
-
-
 What expression with SCL shall we use to flag cloud pixels 

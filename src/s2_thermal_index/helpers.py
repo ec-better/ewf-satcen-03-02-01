@@ -12,6 +12,7 @@ from osgeo.gdalconst import GA_ReadOnly
 from ogr import osr
 import geopandas as gp
 import json
+import shutil
 
 def polygonize(url, date, originator):
     
@@ -60,6 +61,25 @@ def analyse(row, data_path):
     
     return pd.Series(series)
 
+
+def get_mask_prob(row):
+    
+    ns = {'xfdu': 'urn:ccsds:schema:xfdu:1',
+          'safe': 'http://www.esa.int/safe/sentinel/1.1',
+          'gml': 'http://www.opengis.net/gml'}
+    
+    path_manifest = os.path.join(row['local_path'],
+                                 row['identifier'] + '.SAFE', 
+                                'manifest.safe')
+    
+    root = etree.parse(path_manifest)
+    
+
+    sub_path = os.path.join(row['local_path'],
+                 row['identifier'] + '.SAFE',
+                 root.xpath('//dataObjectSection/dataObject/byteStream/fileLocation[contains(@href,("MSK_CLDPRB_20m.jp2"))]')[0].attrib['href'][2:])
+    
+    return sub_path
 
 def get_band_path(row, band):
     
@@ -171,9 +191,79 @@ def hot_spot(s2_product, scl_product, output_name):
    
     return True
 
-
+def metadata(result, title, row):
+    
+    date_format = '%Y-%m-%dT%H:%m:%S'
+    
+    with open(result.split('.')[0] + '.properties', 'w') as file:
+        file.write('title={}\n'.format(title))
+        file.write('date={}Z/{}Z\n'.format(row.startdate.strftime(date_format),
+                                           row.enddate.strftime(date_format)))   
+        file.write('geometry={}'.format(row.wkt))
 
     
+def cog(input_tif):
     
+    temp_tif = 'temp.tif'
+    
+    shutil.move(input_tif, temp_tif)
+    
+    translate_options = gdal.TranslateOptions(gdal.ParseCommandLine('-co TILED=YES ' \
+                                                                    '-co COPY_SRC_OVERVIEWS=YES ' \
+                                                                    ' -co COMPRESS=LZW'))
 
+    ds = gdal.Open(temp_tif, gdal.OF_READONLY)
+
+    gdal.SetConfigOption('COMPRESS_OVERVIEW', 'DEFLATE')
+    ds.BuildOverviews('NEAREST', [2,4,8,16,32])
+    
+    ds = None
+
+    ds = gdal.Open(temp_tif)
+    gdal.Translate(input_tif,
+                   ds, 
+                   options=translate_options)
+    ds = None
+
+    os.remove('{}.ovr'.format(temp_tif))
+    os.remove(temp_tif)
+
+    
+def cloud_mask(msk_cloud, prob, output_name):
+    
+    gdal.Translate('mask.tif', 
+               msk_cloud,
+               xRes=10, 
+               yRes=10)
+
+    ds = gdal.Open('mask.tif')
+
+    mask = ds.GetRasterBand(1).ReadAsArray() 
+
+    width = ds.RasterXSize
+    height = ds.RasterYSize
+
+    input_geotransform = ds.GetGeoTransform()
+    input_georef = ds.GetProjectionRef()
+
+    mask_threshold = np.zeros((height, width), dtype=np.uint8)
+
+    mask_threshold[np.where(mask >= prob)] = 1
+
+    driver = gdal.GetDriverByName('GTiff')
+
+    output = driver.Create(output_name, 
+                           width, 
+                           height, 
+                           1, 
+                           gdal.GDT_Byte)
+
+    output.SetGeoTransform(input_geotransform)
+    output.SetProjection(input_georef)
+    output.GetRasterBand(1).WriteArray(mask_threshold)
+
+    output.FlushCache()
+    
+    os.remove('mask.tif')
+    
     
