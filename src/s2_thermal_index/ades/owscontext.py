@@ -35,7 +35,7 @@ def main(docker, cwlfile, owsfile, stdout):
     
     for key in signature.keys():
         
-        if key in ['input_identifier', 'input_identifiers', 'service', 'data_path']:
+        if key in ['input_identifier', 'input_identifier_stack', 'service', 'data_path']:
             
             continue    
     

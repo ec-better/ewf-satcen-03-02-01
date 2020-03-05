@@ -31,7 +31,7 @@ aoi_wkt = dict([('identifier', 'aoi'),
 
 
 
-input_reference = dict([('identifier', 'source'),
+input_reference = dict([('identifier', 'input_reference'),
                         ('title', 'S2 references'),
                         ('abstract', 'S2 input reference as a comma separated list of catalogue references'),
                         ('value', 'https://catalog.terradue.com/sentinel2/search?uid=S2A_MSIL2A_20191107T235251_N0213_R130_T56JML_20191108T014647')])
