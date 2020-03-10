@@ -21,7 +21,8 @@ def main(docker, cwlfile, owsfile, stdout):
     mod = importlib.import_module(__package__)
 
     signature = get_signature(mod)
-    
+
+    print(signature)
     ows_context = Atom.from_template(atom_template)
     
     ows_context.set_identifier('application_package_{}'.format(signature['service']['identifier'].replace('-', '_')))

@@ -27,14 +27,15 @@ aoi_wkt = dict([('identifier', 'aoi'),
                 ('value', '152.117,-31.128,152.457,-30.817'),
                 ('title', 'Area of interest in WKT or bbox'),
                 ('abstract', 'Area of interest using a polygon in Well-Known-Text format or bounding box'),
-                ('maxOccurs', '1')])
+                ('max_occurs', '1')])
 
 
 
 input_reference = dict([('identifier', 'input_reference'),
                         ('title', 'S2 references'),
                         ('abstract', 'S2 input reference as a comma separated list of catalogue references'),
-                        ('value', 'https://catalog.terradue.com/sentinel2/search?uid=S2A_MSIL2A_20191107T235251_N0213_R130_T56JML_20191108T014647')])
+                        ('value', 'https://catalog.terradue.com/sentinel2/search?uid=S2A_MSIL2A_20191107T235251_N0213_R130_T56JML_20191108T014647'),
+                        ('min_occurs', '1')])
 
 
 
@@ -71,7 +72,7 @@ def main(input_reference, data_path):
     
     composites = []
 
-    bands = ['B12', 'B11', 'B8A']
+    bands = ['B12', 'B8A', 'B04']
 
     for index, row in sentinel2_search.iterrows():
 
@@ -106,7 +107,7 @@ def main(input_reference, data_path):
         
         ds.FlushCache()
 
-        tif = '{}_NIR_SWIR_COMPOSITE_UInt16.tif'.format(row['identifier'])
+        tif = '{}_ACTIVE_FIRE_UInt16.tif'.format(row['identifier'])
         
         logging.info('Convert {} to UInt16'.format(row['identifier']))
 
@@ -130,7 +131,7 @@ def main(input_reference, data_path):
                        scaleParams=[[0, 10000, 0, 255]])
         
         
-        tif_e =  '{}_NIR_SWIR_COMPOSITE.tif'.format(row['identifier'])
+        tif_e =  '{}_ACTIVE_FIRE.tif'.format(row['identifier'])
 
         contrast_enhancement(tif, tif_e)
 
